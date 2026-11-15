@@ -105,5 +105,23 @@ def compare(stream_out: DataFrame, reference: DataFrame, tol: float = 1e-6) -> d
         F.sum(F.col("r.n_events").isNull().cast("int")).alias("extra_in_stream"),
         F.sum((F.col("s.n_events") != F.col("r.n_events")).cast("int")).alias("count_mismatch"),
         F.sum((diff > 0).cast("int")).alias("value_mismatch"),
+        # events of windows the stream has not emitted (still open when it stopped)
+        F.coalesce(
+            F.sum(F.when(F.col("s.n_events").isNull(), F.col("r.n_events"))), F.lit(0)
+        ).alias("events_in_unemitted_windows"),
+        # events missing from windows that were emitted
+        F.coalesce(
+            F.sum(
+                F.when(F.col("s.n_events").isNotNull(), F.col("r.n_events") - F.col("s.n_events"))
+            ),
+            F.lit(0),
+        ).alias("events_missing_from_emitted_windows"),
     ).first()
-    return stats.asDict()
+    out = stats.asDict()
+    # In append mode a window is emitted once, when the watermark passes its end. A late
+    # row accepted after that opens a new state for the same window, which is emitted
+    # again later: a second, partial row for the same (hour, region).
+    out["windows_emitted_more_than_once"] = (
+        stream_out.groupBy("hour", "region_code").count().where("count > 1").count()
+    )
+    return out

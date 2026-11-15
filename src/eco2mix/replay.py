@@ -75,6 +75,28 @@ def by_arrival_day(events: list[Event]) -> Iterator[tuple[str, list[dict]]]:
         yield day, batch
 
 
+def expected_late_drops(events: list[Event], watermark_s: int = 7200, window_s: int = 3600) -> int:
+    """Simulate Spark's rule file by file: with one file per micro-batch, the watermark
+    used for a batch is (max event time seen in earlier batches) - delay, and an event
+    is dropped when its window has already ended at that watermark."""
+    dropped = 0
+    max_ts: int | None = None
+    for _, batch in by_arrival_day(events):
+        wm = None if max_ts is None else max_ts - watermark_s
+        ts = [
+            int(
+                datetime.strptime(e["ts"], "%Y-%m-%dT%H:%M:%SZ")
+                .replace(tzinfo=timezone.utc)
+                .timestamp()
+            )
+            for e in batch
+        ]
+        if wm is not None:
+            dropped += sum(1 for t in ts if (t - t % window_s) + window_s <= wm)
+        max_ts = max(ts) if max_ts is None else max(max_ts, max(ts))
+    return dropped
+
+
 def write_files(events: list[Event], out_dir: Path) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     n_files = 0

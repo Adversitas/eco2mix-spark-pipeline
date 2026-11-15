@@ -7,7 +7,14 @@ from datetime import datetime, timezone
 
 import pytest
 
-from eco2mix.replay import ReplayConfig, by_arrival_day, to_event, with_arrival, write_files
+from eco2mix.replay import (
+    ReplayConfig,
+    by_arrival_day,
+    expected_late_drops,
+    to_event,
+    with_arrival,
+    write_files,
+)
 from eco2mix.streaming import (
     EVENT_FIELDS,
     batch_hourly_reference,
@@ -109,3 +116,15 @@ def test_late_events_are_dropped_not_miscounted(spark, silver, tmp_path):
     # no window ever counts more events than really happened in it
     joined = out.alias("s").join(ref.alias("r"), ["hour", "region_code"])
     assert joined.where("s.n_events > r.n_events").count() == 0
+
+
+def test_expected_late_drops_simulation():
+    def rec(h):
+        return {"region_code": "84", "epoch": T0 + h * 3600, **dict.fromkeys(EVENT_FIELDS, 1.0)}
+
+    on_time = [(T0 + h * 3600, to_event(rec(h)), False) for h in range(48)]
+    # an event from hour 1 arriving on day 2: its window ended long before the watermark
+    late = [(T0 + 30 * 3600, to_event(rec(1)), True)]
+    events = sorted(on_time + late, key=lambda e: e[0])
+    assert expected_late_drops(events) == 1
+    assert expected_late_drops(on_time) == 0

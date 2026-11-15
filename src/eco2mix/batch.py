@@ -45,6 +45,8 @@ def spark_session(
         .config("spark.sql.session.timeZone", "UTC")
         .config("spark.sql.shuffle.partitions", "8")
         .config("spark.ui.enabled", "false")
+        # keep every micro-batch's progress (default 100) so totals are exact
+        .config("spark.sql.streaming.numRecentProgressUpdates", "10000")
         .getOrCreate()
     )
 
