@@ -75,15 +75,19 @@ def by_arrival_day(events: list[Event]) -> Iterator[tuple[str, list[dict]]]:
         yield day, batch
 
 
-def expected_late_drops(events: list[Event], watermark_s: int = 7200, window_s: int = 3600) -> int:
-    """Simulate Spark's rule file by file: with one file per micro-batch, the watermark
-    used for a batch is (max event time seen in earlier batches) - delay, and an event
-    is dropped when its window has already ended at that watermark."""
-    dropped = 0
-    max_ts: int | None = None
-    for _, batch in by_arrival_day(events):
-        wm = None if max_ts is None else max_ts - watermark_s
-        ts = [
+def expected_late_drops(
+    events: list[Event], watermark_s: int = 7200, window_s: int = 3600, lag_batches: int = 2
+) -> int:
+    """Estimate how many events Spark will drop as late, file by file.
+
+    With one file per micro-batch, the watermark Spark uses to drop late rows in batch N
+    is computed from the event times of batches up to N - ``lag_batches``. Measured on
+    the 2023 replay, ``lag_batches=1`` (the intuitive "previous batch" rule) predicts
+    2,086 drops, while ``lag_batches=2`` predicts 253 and Spark 3.5 reports 256: in
+    practice the watermark tolerates one extra batch interval of lateness.
+    """
+    batches = [
+        [
             int(
                 datetime.strptime(e["ts"], "%Y-%m-%dT%H:%M:%SZ")
                 .replace(tzinfo=timezone.utc)
@@ -91,9 +95,18 @@ def expected_late_drops(events: list[Event], watermark_s: int = 7200, window_s: 
             )
             for e in batch
         ]
-        if wm is not None:
-            dropped += sum(1 for t in ts if (t - t % window_s) + window_s <= wm)
-        max_ts = max(ts) if max_ts is None else max(max_ts, max(ts))
+        for _, batch in by_arrival_day(events)
+    ]
+    dropped = 0
+    running_max: list[int] = []
+    for ts in batches:
+        running_max.append(max(ts) if not running_max else max(running_max[-1], max(ts)))
+    for i, ts in enumerate(batches):
+        j = i - lag_batches
+        if j < 0:
+            continue
+        wm = running_max[j] - watermark_s
+        dropped += sum(1 for t in ts if (t - t % window_s) + window_s <= wm)
     return dropped
 
 

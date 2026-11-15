@@ -122,9 +122,13 @@ def test_expected_late_drops_simulation():
     def rec(h):
         return {"region_code": "84", "epoch": T0 + h * 3600, **dict.fromkeys(EVENT_FIELDS, 1.0)}
 
-    on_time = [(T0 + h * 3600, to_event(rec(h)), False) for h in range(48)]
-    # an event from hour 1 arriving on day 2: its window ended long before the watermark
-    late = [(T0 + 30 * 3600, to_event(rec(1)), True)]
+    on_time = [(T0 + h * 3600, to_event(rec(h)), False) for h in range(72)]
+    # an event from hour 1 arriving on day 3 (third file): behind the watermark
+    late = [(T0 + 54 * 3600, to_event(rec(1)), True)]
     events = sorted(on_time + late, key=lambda e: e[0])
     assert expected_late_drops(events) == 1
     assert expected_late_drops(on_time) == 0
+    # with the same lateness on day 2, the two-batch lag still accepts it
+    early = sorted(on_time + [(T0 + 30 * 3600, to_event(rec(1)), True)], key=lambda e: e[0])
+    assert expected_late_drops(early) == 0
+    assert expected_late_drops(early, lag_batches=1) == 1
