@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "eco2mix"
+version = "0.1.0"
+description = "PySpark batch and Structured Streaming pipeline on RTE eco2mix regional electricity data: quality checks, gold aggregates, Kafka or file event replay with late data, and a stream-vs-batch consistency check."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = ["pyspark>=3.5,<4", "httpx>=0.27"]
+
+[project.optional-dependencies]
+kafka = ["kafka-python-ng>=2.2"]
+dev = ["pytest>=8.0", "ruff>=0.5"]
+
+[project.scripts]
+eco2mix = "eco2mix.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/eco2mix"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

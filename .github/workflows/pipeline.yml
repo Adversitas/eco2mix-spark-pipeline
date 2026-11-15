@@ -1,0 +1,39 @@
+name: Pipeline
+
+# Full run on the real 2023 data: download from ODRE, batch, replay with late events,
+# streaming, and the stream-vs-batch check. Results go to the job summary.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["src/**", ".github/workflows/pipeline.yml"]
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e .
+      - run: eco2mix download --year 2023
+      - name: Batch
+        run: eco2mix batch --out out | tee batch.log
+      - name: Stream, nothing late
+        run: |
+          eco2mix replay --events-dir data/events_ontime | tee -a stream.log
+          eco2mix stream --events-dir data/events_ontime --checkpoint data/ckpt_ontime --verify | tee -a stream.log
+      - name: Stream, 1 % late events
+        run: |
+          eco2mix replay --events-dir data/events_late --late-fraction 0.01 | tee -a stream.log
+          eco2mix stream --events-dir data/events_late --checkpoint data/ckpt_late --verify | tee -a stream.log
+      - name: Summary
+        if: always()
+        run: |
+          { echo "## Batch"; echo '```'; cat batch.log; echo '```'; echo "## Streaming"; echo '```'; cat stream.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
